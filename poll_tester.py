@@ -72,7 +72,7 @@ def is_highlighted(page):
 def is_limit_reached(page):
     """Sayfada oy verme limitine ulaşıldığını belirten mesaj var mı kontrol eder."""
     try:
-        return page.get_by_text(LIMIT_TEXT, exact=False).is_visible(timeout=1000)
+        return page.get_by_text(LIMIT_TEXT, exact=False).is_visible(timeout=5000)
     except Exception:
         return False
 
@@ -126,7 +126,7 @@ def vote_once(page, vote_count):
 
     # Gönder butonuna tıkla
     submit_btn = page.get_by_role("button", name=SUBMIT_TEXT)
-    submit_btn.wait_for(state="visible", timeout=5000)
+    submit_btn.wait_for(state="visible", timeout=20000)
     submit_btn.click(force=True)
 
     print(f"  [→] {vote_count}. oy gönderme butonuna tıklandı.")
@@ -156,7 +156,12 @@ def main():
             print(f"\n--- Oturum #{session} (Yeni Tarayıcı) Başlatılıyor ---")
             
             # Her oturumda Chromium tarayıcısı sıfırdan başlatılır
-            browser = p.chromium.launch(headless=HEADLESS)
+            # Google Chrome ile gizli sekme modunda başlatma
+            browser = p.chromium.launch(
+                headless=HEADLESS,
+                channel="chrome",  # Yüklü olan Google Chrome'u kullanır
+                args=["--incognito"]  # Gizli sekme parametresi
+            )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             )
