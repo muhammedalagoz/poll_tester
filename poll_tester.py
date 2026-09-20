@@ -1,17 +1,16 @@
 """Yerel oylama sayfasi test otomasyonu (Playwright).
 
 Her turda temiz bir tarayici baglami (gizli sekme benzeri) acar, adayi secer,
-gonder butonuna basar, sayfayi yeniler. Aday "isaretli" (sari) olunca baglami
-kapatip yenisini acar. 'q' tusuna basinca durur.
+gonder butonuna basar, sayfayi yeniler. Aday "isaretli" (sari) olunca veya 
+GÜNLÜK LİMİT UYARISI alindiginda baglami kapatip yenisini acar. 
+'q' tusuna basinca durur.
 
 Guvenlik: yalnizca localhost / 127.0.0.1 / ::1 hedeflerine calisir.
 """
 import os
-import select
 import sys
-import termios
 import threading
-import tty
+import time
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -23,83 +22,105 @@ TARGET_URL = os.getenv("TARGET_URL", "http://127.0.0.1:8000")
 CANDIDATE = os.getenv("CANDIDATE", "Ilhan Fakili")
 SUBMIT_TEXT = os.getenv("SUBMIT_TEXT", "VOTA ORA")
 HIGHLIGHT_SELECTOR = os.getenv("HIGHLIGHT_SELECTOR", "label.option.leader")
-OPTION_SELECTOR = os.getenv("OPTION_SELECTOR", "label.option")
 HEADLESS = os.getenv("HEADLESS", "0") == "1"
 DELAY_MS = int(os.getenv("DELAY_MS", "500"))
-# Yerel sayfada cerez/onay modali cikiyorsa kapatma butonu (bos ise atlanir).
-# CONSENT_SELECTOR: CSS secici (or. "#consent-modal button.accept")
-# CONSENT_TEXT: buton metni (or. "Kabul et"); ikisi de verilirse secici kullanilir.
+
+# Rıza ve Çerez ayarları (.env üzerinden dinamik)
 CONSENT_SELECTOR = os.getenv("CONSENT_SELECTOR", "")
-CONSENT_TEXT = os.getenv("CONSENT_TEXT", "")
+CONSENT_TEXT = os.getenv("CONSENT_TEXT", "AGREE AND CLOSE")
+
+# Limit uyarısı metni
+LIMIT_TEXT = "HAI RAGGIUNTO IL LIMITE VOTI GIORNALIERO"
 
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
 stop = threading.Event()
 
 
-def check_target():
-    host = urlparse(TARGET_URL).hostname
-    if host not in ALLOWED_HOSTS:
-        sys.exit(f"Reddedildi: '{host}' yerel bir adres degil. "
-                 f"Yalnizca {sorted(ALLOWED_HOSTS)} desteklenir.")
-
-
 def listen_for_q():
-    """Terminalde 'q' tusunu bekler (enter gerektirmez)."""
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setcbreak(fd)
+    """Cross-platform 'q' tuşu dinleyicisi (Windows / Unix)."""
+    if os.name == 'nt':
+        import msvcrt
         while not stop.is_set():
-            if select.select([sys.stdin], [], [], 0.2)[0]:
-                if sys.stdin.read(1).lower() == "q":
+            if msvcrt.kbhit():
+                key = msvcrt.getch().decode('utf-8', errors='ignore')
+                if key.lower() == 'q':
                     stop.set()
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            time.sleep(0.1)
+    else:
+        import select
+        import termios
+        import tty
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            while not stop.is_set():
+                if select.select([sys.stdin], [], [], 0.2)[0]:
+                    if sys.stdin.read(1).lower() == "q":
+                        stop.set()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 def is_highlighted(page):
-    return page.locator(HIGHLIGHT_SELECTOR, has_text=CANDIDATE).count() > 0
+    try:
+        return page.locator(HIGHLIGHT_SELECTOR, has_text=CANDIDATE).count() > 0
+    except Exception:
+        return False
+
+
+def is_limit_reached(page):
+    """Sayfada oy verme limitine ulaşıldığını belirten mesaj var mı kontrol eder."""
+    try:
+        return page.get_by_text(LIMIT_TEXT, exact=False).is_visible(timeout=1000)
+    except Exception:
+        return False
 
 
 def dismiss_consent(page):
     try:
-        agree_btn = page.get_by_text("AGREE AND CLOSE", exact=False)
-        # Sadece 2 saniye içinde ekranda belirirse tıkla
-        if agree_btn.is_visible(timeout=2000):
-            agree_btn.click(timeout=2000)
-            print("Agree butonuna başarıyla tıklandı.")
+        if CONSENT_SELECTOR:
+            btn = page.locator(CONSENT_SELECTOR).first
+        else:
+            btn = page.get_by_text(CONSENT_TEXT, exact=False)
+
+        if btn.is_visible(timeout=2000):
+            btn.click(timeout=2000)
+            print("  [i] Onay butonuna tıklandı.")
     except Exception:
-        # Ekran kapanmışsa veya buton çıkmadıysa hatayı yut ve devam et
         pass
+
 
 def close_ad_banner(page):
     try:
-        # Close X uyarısını 2 saniyeye düşürerek süreci yavaşlatmasını engelleyin
-        page.get_by_text("Close X", exact=False).click(timeout=2000)
-        print("Reklam kapatma butonuna basıldı.")
+        btn = page.get_by_text("Close X", exact=False)
+        if btn.is_visible(timeout=2000):
+            btn.click(timeout=2000)
+            print("  [i] Reklam kapatma butonuna basıldı.")
     except Exception:
-        # Reklam çıkmadıysa sessizce devam et
         pass
+
+
 def vote_once(page, vote_count):
-    # Çerez banner'ı ve reklamları güvenli şekilde geç
     dismiss_consent(page)
     close_ad_banner(page)
 
-    # Adayı bul
+    # İşlem öncesi limit kontrolü
+    if is_limit_reached(page):
+        return False
+
+    # Adayı bul ve tıkla
     candidate_option = page.get_by_text(CANDIDATE, exact=False).first
     candidate_option.wait_for(state="visible", timeout=10000)
-    
-    # Tıkla
     candidate_option.click(force=True)
 
-    # Seçeneğin veya ilgili radio butonun işaretlendiğini kontrol et
-    # Eğer DOM üzerinde doğrudan input[type="radio"] varsa is_checked() kontrolü yapılır
+    # Radio kontrolü
     try:
         radio_input = candidate_option.locator("xpath=..//input[@type='radio']").first
         if radio_input.count() > 0 and radio_input.is_checked(timeout=1000):
-            print(f"  [✓] '{CANDIDATE}' seçeneği/radio butonu başarıyla işaretlendi.")
+            print(f"  [✓] '{CANDIDATE}' seçeneği işaretlendi.")
         else:
-            print(f"  [i] '{CANDIDATE}' öğesine tıklandı (radio kontrolü doğrulanamadı, devam ediliyor).")
+            print(f"  [i] '{CANDIDATE}' öğesine tıklandı.")
     except Exception:
         print(f"  [i] '{CANDIDATE}' tıklandı.")
 
@@ -109,53 +130,75 @@ def vote_once(page, vote_count):
     submit_btn.click(force=True)
 
     print(f"  [→] {vote_count}. oy gönderme butonuna tıklandı.")
-
-    # İsteğin sunucuya iletilmesi için kısa bekleme
     page.wait_for_timeout(1000)
 
-    # Sayfayı yenileme / tekrar yönlendirme
+    # Sayfayı yenileme
     try:
-        page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=15000)
+        page.reload(wait_until="domcontentloaded", timeout=15000)
     except Exception:
         page.evaluate("window.stop()")
         page.goto(TARGET_URL, wait_until="commit", timeout=10000)
 
-    print(f"  [✓] Sayfa yenilendi.")
+    print("  [✓] Sayfa yenilendi.")
     page.wait_for_timeout(DELAY_MS)
-
+    return True
 
 def main():
     threading.Thread(target=listen_for_q, daemon=True).start()
-    print(f"Hedef: {TARGET_URL} | Aday: {CANDIDATE} | Durdurmak için 'q'")
+    print(f"Hedef: {TARGET_URL} | Aday: {CANDIDATE} | Durdurmak için 'q'\n")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=HEADLESS)
         session = 0
+        MAX_VOTES_PER_SESSION = 5  # Her tarayıcı oturumunda en fazla 5 oy
+
         while not stop.is_set():
             session += 1
-            print(f"\n--- Oturum #{session} Başlatılıyor ---")
-            context = browser.new_context()  # temiz çerez/oturum
-            page = context.new_page()
+            print(f"\n--- Oturum #{session} (Yeni Tarayıcı) Başlatılıyor ---")
             
+            # Her oturumda Chromium tarayıcısı sıfırdan başlatılır
+            browser = p.chromium.launch(headless=HEADLESS)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
+
             try:
                 page.goto(TARGET_URL, wait_until="domcontentloaded")
             except Exception:
                 pass
-                
+
             votes = 0
             while not stop.is_set() and not is_highlighted(page):
+                # 1. Günlük limit uyarısı çıktı mı kontrol et[cite: 3]
+                if is_limit_reached(page):
+                    print(f"\n[!] [Oturum #{session}] GÜNLÜK OY LİMİTİ UYARISI ALINDI![cite: 3]")
+                    print("    Tarayıcı kapatılıp sıfırdan yeni tarayıcı başlatılacak...")
+                    break
+
+                # 2. 5 Oy sınırına ulaşıldı mı kontrol et
+                if votes >= MAX_VOTES_PER_SESSION:
+                    print(f"\n[i] [Oturum #{session}] {MAX_VOTES_PER_SESSION} oy sınırına ulaşıldı.")
+                    print("    Tarayıcı kapatılıp yenisi açılıyor...")
+                    break
+
                 votes += 1
-                print(f"\n[Oturum #{session}] {votes}. Oy kullanma denemesi yapılıyor...")
-                vote_once(page, votes)
+                print(f"[Oturum #{session}] {votes}/{MAX_VOTES_PER_SESSION}. Oy denemesi...")
                 
+                success = vote_once(page, votes)
+                if not success:
+                    break
+
             if is_highlighted(page):
                 print(f"\n[★ SUCCESS] [Oturum #{session}] Aday sarı/lider olarak işaretlendi!")
-                print(f"   Toplam {votes} denemede hedef duruma ulaşıldı. Yeni oturuma geçiliyor...")
-                
-            context.close()
-        browser.close()
-    print("\nTest Otomasyonu Durduruldu.")
 
+            # Bağlam ve Tarayıcı tamamen kapatılır
+            context.close()
+            browser.close()
+            
+            print(f"--- Oturum #{session} Kapatıldı ---")
+            time.sleep(1)  # Kısa bir bekleme
+
+    print("\nTest Otomasyonu Durduruldu.")
 
 if __name__ == "__main__":
     main()
