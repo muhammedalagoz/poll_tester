@@ -20,6 +20,12 @@ Kendi yerel oylama sayfanı test etmek için Playwright tabanlı bir otomasyon a
 | `.env.example` | Ayar şablonu |
 | `requirements.txt` | Bağımlılıklar (`playwright`, `python-dotenv`) |
 
+## Ön koşullar
+
+- Python 3.9 veya üzeri
+- macOS/Linux (kod `termios` ve `tty` modüllerini kullandığı için Windows desteklenmiyor)
+- **Google Chrome** yüklü olmalı: `poll_tester.py`, Playwright'ın kendi indirdiği Chromium yerine sistemde kurulu Google Chrome'u (`channel="chrome"`) kullanır. `playwright install chromium` komutu yalnızca yedek/uyumluluk amaçlıdır, Chrome'un ayrıca kurulu olması gerekir.
+
 ## Kurulum
 
 ```bash
@@ -29,6 +35,8 @@ pip install -r requirements.txt
 playwright install chromium
 cp .env.example .env
 ```
+
+> Sanal ortamı (`.venv`) her yeni terminal oturumunda tekrar aktif etmeyi (`source .venv/bin/activate`) unutma.
 
 `.env` dosyasını yerel sunucuya göre düzenle:
 
@@ -44,19 +52,25 @@ DELAY_MS=500
 
 ## Çalıştırma
 
-Bir terminalde sahte sunucuyu başlat:
+Kurulum tamamlandıktan sonra sırasıyla:
 
-```bash
-python mock_poll_server.py
-```
+1. Bir terminalde sanal ortamı aktif et ve sahte sunucuyu başlat:
 
-Başka bir terminalde testi çalıştır:
+   ```bash
+   source .venv/bin/activate
+   python mock_poll_server.py
+   ```
 
-```bash
-python poll_tester.py
-```
+2. Başka bir terminalde sanal ortamı aktif et ve testi çalıştır:
 
-Durdurmak için terminalde `q` tuşuna bas.
+   ```bash
+   source .venv/bin/activate
+   python poll_tester.py
+   ```
+
+3. Durdurmak için testin çalıştığı terminalde `q` tuşuna bas.
+
+> Not: `poll_tester.py`, `TARGET_URL` değerine göre hedefe bağlanır; yerel testler için sunucunun (`mock_poll_server.py`) testi başlatmadan önce çalışır durumda olması gerekir.
 
 ## Ayarlar
 
