@@ -69,6 +69,10 @@ Durdurmak için terminalde `q` tuşuna bas.
 | `OPTION_SELECTOR` | `label.option` | Seçenek öğeleri için seçici |
 | `HEADLESS` | `0` | `1` ise tarayıcı görünmez çalışır |
 | `DELAY_MS` | `500` | Turlar arası bekleme (ms) |
+| `LIMIT_CHECK_TIMEOUT_MS` | `5000` | Limit uyarısı mesajının görünürlüğü için bekleme süresi (ms) |
+| `SUBMIT_WAIT_TIMEOUT_MS` | `20000` | Gönder butonunun görünür olması için bekleme süresi (ms) |
+| `BROWSER_CHANNEL` | *(boş)* | Boşsa Playwright'in bundled Chromium'u kullanılır; `chrome` verilirse sistemde kurulu Google Chrome kullanılır |
+| `INCOGNITO` | `0` | `1` ise tarayıcı `--incognito` parametresiyle başlatılır |
 
 Sahte sunucu için: `PORT` (varsayılan `8000`) ve `ENFORCE_LIMIT` (varsayılan `1`; açıkken aynı çerezle ikinci oy reddedilir).
 

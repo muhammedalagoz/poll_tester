@@ -25,6 +25,15 @@ HIGHLIGHT_SELECTOR = os.getenv("HIGHLIGHT_SELECTOR", "label.option.leader")
 HEADLESS = os.getenv("HEADLESS", "0") == "1"
 DELAY_MS = int(os.getenv("DELAY_MS", "500"))
 
+# Zaman asimi ayarlari (.env üzerinden dinamik)
+LIMIT_CHECK_TIMEOUT_MS = int(os.getenv("LIMIT_CHECK_TIMEOUT_MS", "5000"))
+SUBMIT_WAIT_TIMEOUT_MS = int(os.getenv("SUBMIT_WAIT_TIMEOUT_MS", "20000"))
+
+# Tarayici baslatma ayarlari (.env üzerinden dinamik)
+# BROWSER_CHANNEL bos ise Playwright'in bundled Chromium'u kullanilir.
+BROWSER_CHANNEL = os.getenv("BROWSER_CHANNEL", "")
+INCOGNITO = os.getenv("INCOGNITO", "0") == "1"
+
 # Rıza ve Çerez ayarları (.env üzerinden dinamik)
 CONSENT_SELECTOR = os.getenv("CONSENT_SELECTOR", "")
 CONSENT_TEXT = os.getenv("CONSENT_TEXT", "AGREE AND CLOSE")
@@ -72,7 +81,7 @@ def is_highlighted(page):
 def is_limit_reached(page):
     """Sayfada oy verme limitine ulaşıldığını belirten mesaj var mı kontrol eder."""
     try:
-        return page.get_by_text(LIMIT_TEXT, exact=False).is_visible(timeout=5000)
+        return page.get_by_text(LIMIT_TEXT, exact=False).is_visible(timeout=LIMIT_CHECK_TIMEOUT_MS)
     except Exception:
         return False
 
@@ -126,7 +135,7 @@ def vote_once(page, vote_count):
 
     # Gönder butonuna tıkla
     submit_btn = page.get_by_role("button", name=SUBMIT_TEXT)
-    submit_btn.wait_for(state="visible", timeout=20000)
+    submit_btn.wait_for(state="visible", timeout=SUBMIT_WAIT_TIMEOUT_MS)
     submit_btn.click(force=True)
 
     print(f"  [→] {vote_count}. oy gönderme butonuna tıklandı.")
@@ -155,13 +164,15 @@ def main():
             session += 1
             print(f"\n--- Oturum #{session} (Yeni Tarayıcı) Başlatılıyor ---")
             
-            # Her oturumda Chromium tarayıcısı sıfırdan başlatılır
-            # Google Chrome ile gizli sekme modunda başlatma
-            browser = p.chromium.launch(
-                headless=HEADLESS,
-                channel="chrome",  # Yüklü olan Google Chrome'u kullanır
-                args=["--incognito"]  # Gizli sekme parametresi
-            )
+            # Her oturumda tarayıcı sıfırdan başlatılır.
+            # BROWSER_CHANNEL/INCOGNITO ayarlanmadıysa varsayılan (bundled) Chromium kullanılır;
+            # bu sayede Google Chrome kurulu olmayan ortamlarda betik hata vermez.
+            launch_kwargs = {"headless": HEADLESS}
+            if BROWSER_CHANNEL:
+                launch_kwargs["channel"] = BROWSER_CHANNEL
+            if INCOGNITO:
+                launch_kwargs["args"] = ["--incognito"]
+            browser = p.chromium.launch(**launch_kwargs)
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             )
